@@ -545,7 +545,7 @@ def main():
         
         # Pension Details Section
         st.markdown("<div class='section-header'>Pension Details</div>", unsafe_allow_html=True)
-        annuity_ratio = st.slider("Annuity Ratio (%)", 0, 100, 40, 
+        annuity_ratio = st.slider("Annuity Ratio (%) - You have to sacrifice this amount from you accumulated corpus to get pension benefit", 0, 100, 40, 
                                 help="Percentage of corpus to be used for purchasing annuity to get monthly pension")
         
         # Return Rate Section
@@ -605,7 +605,7 @@ def main():
                     st.metric("Total Corpus at Retirement", format_metric_value(nps.total_corpus))
                     st.markdown(f"<div class='word-value'>{nps.total_corpus_words}</div>", unsafe_allow_html=True)
                     
-                    st.metric("Annuity Corpus", format_metric_value(nps.annuity_corpus))
+                    st.metric("Annuity Corpus(You have to sacrifice this amount from you accumulated corpus to get pension benefit)", format_metric_value(nps.annuity_corpus))
                     st.markdown(f"<div class='word-value'>{nps.annuity_corpus_words}</div>", unsafe_allow_html=True)
                     
                     st.metric("Lump Sum Withdrawal", format_metric_value(nps.lump_sum))
