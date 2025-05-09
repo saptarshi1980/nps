@@ -1,0 +1,111 @@
+import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
+
+def nps_pension_custom(
+    current_age,
+    current_balance,
+    monthly_contribution,
+    annuity_ratio,
+    annual_return_rate,
+    retirement_age=60,
+    annuity_rate=0.06
+):
+    # Calculate values
+    years = retirement_age - current_age
+    months = years * 12
+    monthly_rate = annual_return_rate / 12
+
+    # Future value calculations
+    fv_contributions = monthly_contribution * ((1 + monthly_rate)**months - 1) / monthly_rate
+    fv_current = current_balance * (1 + annual_return_rate)**years
+    total_corpus = fv_contributions + fv_current
+
+    annuity_corpus = total_corpus * annuity_ratio
+    lump_sum = total_corpus * (1 - annuity_ratio)
+    monthly_pension = (annuity_corpus * annuity_rate) / 12
+
+    # Display results
+    print("\n📘 NPS Pension Projection")
+    print(f"🧮 Total Retirement Corpus (at age {retirement_age}): ₹{total_corpus:,.2f}")
+    print(f"🏦 Annuity Corpus: ₹{annuity_corpus:,.2f}")
+    print(f"💰 Lump Sum: ₹{lump_sum:,.2f}")
+    print(f"💵 Estimated Monthly Pension: ₹{monthly_pension:,.2f}")
+
+    # Plot 1: Bar Chart (showing monthly pension)
+    total_invested = (monthly_contribution * months) + current_balance
+    growth = total_corpus - total_invested
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    categories = ["Total Invested", "Growth", "Total Corpus", "Monthly Pension"]
+    values = [total_invested, growth, total_corpus, monthly_pension]
+    colors = ["#1f77b4", "#2ca02c", "#ff7f0e", "#d62728"]
+    
+    bars = ax.bar(categories, values, color=colors)
+    
+    # Format y-axis to show full numbers
+    ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=False))
+    ax.yaxis.set_major_formatter('{x:,.0f}')
+    
+    # Add value labels
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+               f'₹{height:,.0f}',
+               ha='center', va='bottom')
+    
+    plt.title("Investment Growth vs Monthly Pension", pad=20)
+    plt.ylabel("Amount (₹)")
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+    # Plot 2: Pie Chart (showing annual pension value)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    
+    # Calculate pension present value (25 years of pension discounted at annuity rate)
+    pension_pv = monthly_pension * 12 * (1 - (1 + annuity_rate)**-25) / annuity_rate
+    
+    sizes = [lump_sum, annuity_corpus]
+    labels = [
+        f"Lump Sum: ₹{lump_sum:,.0f}",
+        f"Annuity Corpus: ₹{annuity_corpus:,.0f}\n(₹{monthly_pension:,.0f}/month pension)"
+    ]
+    wedges, texts, autotexts = ax.pie(sizes, 
+                                    labels=labels,
+                                    autopct=lambda p: f'{p:.1f}%\n(₹{p/100*sum(sizes):,.0f})',
+                                    colors=["#e377c2", "#8c564b"],
+                                    textprops={'fontsize': 9},
+                                    wedgeprops={'linewidth': 1, 'edgecolor': 'white'})
+    
+    plt.title("Corpus Distribution: Lump Sum vs Pension Value", pad=20)
+    plt.tight_layout()
+    plt.show()
+
+# User input
+print("NPS Pension Calculator\n")
+try:
+    current_age = int(input("Current age (25-55): "))
+    current_balance = float(input("Current NPS balance (₹): "))
+    monthly_contribution = float(input("Monthly contribution (₹): "))
+    
+    print("\nAnnuity Ratio: Portion used to buy pension (0-100)")
+    print("Example: 40% annuity, 60% lump sum")
+    annuity_ratio = float(input("Annuity ratio (0-100): "))
+    
+    print("\nExpected annual return rate (as decimal)")
+    print("Example: 0.1 for 10% returns")
+    annual_return_rate = float(input("Annual return rate: "))
+
+    nps_pension_custom(
+        current_age=current_age,
+        current_balance=current_balance,
+        monthly_contribution=monthly_contribution,
+        annuity_ratio=annuity_ratio/100,
+        annual_return_rate=annual_return_rate/100
+    )
+
+except ValueError as e:
+    print(f"\n❌ Input Error: {str(e)}")
+    print("Please enter valid numbers.")
+except Exception as e:
+    print(f"\n❌ Unexpected Error: {str(e)}")

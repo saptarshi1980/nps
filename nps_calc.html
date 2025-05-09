@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>NPS Pension Calculator</title>
+</head>
+<body>
+  <script>
+    function npsPensionCustom({
+      currentAge,
+      currentBalance,
+      monthlyContribution,
+      annuityRatio,
+      retirementAge = 60,
+      annualReturnRate = 0.08,
+      annuityRate = 0.06
+    }) {
+      const years = retirementAge - currentAge;
+      const months = years * 12;
+      const monthlyRate = annualReturnRate / 12;
+
+      const fvContributions = monthlyContribution * ((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate);
+      const fvCurrent = currentBalance * Math.pow(1 + annualReturnRate, years);
+      const totalCorpus = fvContributions + fvCurrent;
+
+      const annuityCorpus = totalCorpus * annuityRatio;
+      const lumpSum = totalCorpus * (1 - annuityRatio);
+      const monthlyPension = (annuityCorpus * annuityRate) / 12;
+
+      alert("📘 NPS Pension Projection\n" +
+        `🧮 Total Retirement Corpus (at age ${retirementAge}): ₹${totalCorpus.toFixed(2)}\n` +
+        `🏦 Annuity Corpus (used to buy pension plan): ₹${annuityCorpus.toFixed(2)}\n` +
+        `💰 Lump Sum (you can withdraw): ₹${lumpSum.toFixed(2)}\n` +
+        `💵 Estimated Monthly Pension: ₹${monthlyPension.toFixed(2)}`
+      );
+    }
+
+    // Get user inputs
+    const currentAge = parseInt(prompt("Enter your current age:"));
+    const currentBalance = parseFloat(prompt("Enter your current NPS balance (₹):"));
+    const monthlyContribution = parseFloat(prompt("Enter your monthly contribution (₹):"));
+    const annuityRatio = parseFloat(prompt("Enter annuity ratio (e.g., 1.0 for 100%, 0.6 for 60%):"));
+
+    if (!isNaN(currentAge) && !isNaN(currentBalance) && !isNaN(monthlyContribution) && !isNaN(annuityRatio)) {
+      npsPensionCustom({
+        currentAge,
+        currentBalance,
+        monthlyContribution,
+        annuityRatio
+      });
+    } else {
+      alert("❌ Invalid input. Please enter valid numbers.");
+    }
+  </script>
+</body>
+</html>
