@@ -2,3 +2,4 @@ fpdf
 pandas
 matplotlib
 streamlit
+numpy
