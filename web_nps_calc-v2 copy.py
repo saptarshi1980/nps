@@ -7,7 +7,6 @@ import datetime
 from dateutil.relativedelta import relativedelta
 import numpy as np
 from functools import lru_cache
-import tempfile
 
 # Function to convert number to words
 def number_to_words_indian(num):
@@ -46,8 +45,7 @@ def number_to_words_indian(num):
 
 class NPSCalculator:
     def __init__(self, birth_date, current_balance, monthly_contribution, annuity_ratio, 
-                 annual_return_rate, annual_increase_rate=0.0, retirement_age=60, 
-                 annuity_rate=0.06, inflation_rate=0.05):
+                 annual_return_rate, annual_increase_rate=0.0, retirement_age=60, annuity_rate=0.06):
         self.birth_date = birth_date
         self.current_date = datetime.date.today()
         self.current_age = self.calculate_exact_age()
@@ -58,7 +56,6 @@ class NPSCalculator:
         self.annual_increase_rate = annual_increase_rate
         self.retirement_age = retirement_age
         self.annuity_rate = annuity_rate
-        self.inflation_rate = inflation_rate
         
         # Use numpy arrays for better performance
         self.yearly_data = []
@@ -70,7 +67,7 @@ class NPSCalculator:
     def calculate_exact_age(self):
         return relativedelta(self.current_date, self.birth_date).years
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # Cache the compute results for performance
     def compute(self):
         # Calculate retirement date as last day of birth month in retirement year
         retirement_year = self.birth_date.year + self.retirement_age
@@ -99,42 +96,52 @@ class NPSCalculator:
         corpus_values = np.zeros(months_to_retirement + 1)
         corpus_values[0] = self.current_balance
         
-        # Calculate monthly contributions with annual increase
-        monthly_contributions = np.zeros(months_to_retirement)
-        current_contribution = self.monthly_contribution
-        for month in range(months_to_retirement):
-            if month % 12 == 0 and month != 0:
-                current_contribution *= (1 + self.annual_increase_rate)
-            monthly_contributions[month] = current_contribution
+        # Use vectorized operations where possible
+        monthly = self.monthly_contribution
+        current_date = self.current_date
         
-        # Calculate corpus growth using vectorized operations
+        # More efficient calculation using numpy for the corpus growth
         for month in range(1, months_to_retirement + 1):
-            corpus_values[month] = corpus_values[month-1] * (1 + self.monthly_rate) + monthly_contributions[month-1]
+            corpus_values[month] = corpus_values[month-1] * (1 + self.monthly_rate) + monthly
+            current_date += relativedelta(months=1)
             
-            current_date = self.current_date + relativedelta(months=month)
-            
-            # Store quarterly data points
-            if month % 3 == 0 or month == months_to_retirement:
+            # Only store essential data points to reduce memory usage
+            if month % 3 == 0 or month == months_to_retirement:  # Store quarterly data points
                 self.monthly_data.append((current_date, corpus_values[month]))
             
-            # Store yearly data points
+            # Record yearly data (at end of each year)
             if month % 12 == 0 or month == months_to_retirement:
                 self.yearly_data.append((current_date, corpus_values[month]))
+            
+            # Increase contribution annually (on the anniversary)
+            if month % 12 == 0:
+                monthly *= (1 + self.annual_increase_rate)
 
         self.total_corpus = corpus_values[-1]
         self.retirement_date = retirement_date
 
-        # Calculate annuity and lump sum
         self.annuity_corpus = self.total_corpus * self.annuity_ratio
         self.lump_sum = self.total_corpus * (1 - self.annuity_ratio)
         self.monthly_pension = (self.annuity_corpus * self.annuity_rate) / 12
-        
-        # Calculate inflation-adjusted pension
-        years_to_retirement = self.retirement_age - self.current_age
-        self.real_monthly_pension = self.monthly_pension / ((1 + self.inflation_rate) ** years_to_retirement)
 
-        # Calculate total invested amount
-        self.total_invested = self.current_balance + np.sum(monthly_contributions)
+        # Calculate total invested amount more efficiently
+        self.total_invested = self.current_balance
+        
+        # Use arithmetic series formula for calculating total contribution
+        if self.annual_increase_rate == 0:
+            # Simple arithmetic series when no increase
+            self.total_invested += self.monthly_contribution * months_to_retirement
+        else:
+            # For geometric series with increasing contributions
+            monthly = self.monthly_contribution
+            for year in range(int(self.years)):
+                self.total_invested += monthly * 12
+                monthly *= (1 + self.annual_increase_rate)
+            
+            # Add partial year investments if retirement doesn't fall on year boundary
+            if months_to_retirement % 12 != 0:
+                self.total_invested += monthly * (months_to_retirement % 12)
+        
         self.growth = self.total_corpus - self.total_invested
         
         # Generate word representations
@@ -142,7 +149,6 @@ class NPSCalculator:
         self.annuity_corpus_words = number_to_words_indian(self.annuity_corpus)
         self.lump_sum_words = number_to_words_indian(self.lump_sum)
         self.monthly_pension_words = number_to_words_indian(self.monthly_pension)
-        self.real_monthly_pension_words = number_to_words_indian(self.real_monthly_pension)
         self.total_invested_words = number_to_words_indian(self.total_invested)
         self.growth_words = number_to_words_indian(self.growth)
 
@@ -154,8 +160,10 @@ class NPSCalculator:
 
         bars = ax.bar(categories, values, color=colors, width=0.6)
         
+        # Format y-axis to show full rupees amount without thousand separators
         ax.yaxis.set_major_formatter(lambda x, pos: f'₹{x:.0f}')
         
+        # Add value labels without thousand separators
         for bar in bars:
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height, 
@@ -175,25 +183,29 @@ class NPSCalculator:
         fig, ax = plt.subplots(figsize=(4, 3))
         sizes = [self.lump_sum, self.annuity_corpus]
         
+        # Format large numbers for better readability
         def format_amount(val):
-            if val >= 1e7:
+            if val >= 1e7:  # Above 1 crore
                 return f"Rs.{val/1e7:.2f} Cr"
-            elif val >= 1e5:
+            elif val >= 1e5:  # Above 1 lakh
                 return f"Rs.{val/1e5:.2f} L"
             else:
                 return f"Rs.{val:.0f}"
         
         labels = [f"Lump Sum: {format_amount(self.lump_sum)}", 
-                 f"Annuity: {format_amount(self.annuity_corpus)}"]
+                  f"Annuity: {format_amount(self.annuity_corpus)}"]
         
         ax.pie(sizes, labels=None,
                autopct=lambda p: f'{p:.1f}%',
                colors=["#e377c2", "#8c564b"],
                wedgeprops={'linewidth': 1, 'edgecolor': 'white'})
         plt.title("Corpus Distribution", fontsize=10)
+        
+        # Add legend with better position
         ax.legend(labels, loc="center left", bbox_to_anchor=(0.9, 0.5), fontsize=7)
         
-        ax.annotate(f"Monthly Pension (6% Annuity Rate): {format_amount(self.monthly_pension)}", 
+        # Add monthly pension as text annotation
+        ax.annotate(f"Monthly Pension (Consedering Annuity Rate of 6%): {format_amount(self.monthly_pension)}", 
                    xy=(0.5, -0.1), xycoords='axes fraction',
                    ha='center', va='center', fontsize=7)
         
@@ -201,13 +213,17 @@ class NPSCalculator:
         return fig
 
     def generate_line_chart(self):
+        # Use less data points for smoother rendering
         dates, values = zip(*self.yearly_data)
         
         fig, ax = plt.subplots(figsize=(6, 3))
+        
+        # Use a more efficient line rendering
         ax.plot(dates, values, marker='o', markersize=3,
                 linestyle='-', linewidth=1,
                 color='#1f77b4', label='Yearly Corpus')
         
+        # Display only quarterly data points for better performance
         m_dates, m_values = zip(*self.monthly_data)
         ax.plot(m_dates, m_values, linestyle='-', linewidth=0.5, 
                 color='#1f77b4', alpha=0.3, label='Quarterly Progress')
@@ -216,8 +232,11 @@ class NPSCalculator:
         ax.set_xlabel("Year", fontsize=8)
         ax.set_ylabel("Corpus Value (Rs.)", fontsize=8)
         ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # Move legend to better position
         ax.legend(fontsize=7, loc='upper left')
         
+        # Format y-axis with simplified notation for large numbers
         def format_func(x, pos):
             if x >= 1e7:
                 return f'Rs.{x/1e7:.1f}Cr'
@@ -228,6 +247,7 @@ class NPSCalculator:
                 
         ax.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
         
+        # Optimize x-axis labels to show fewer points for clarity
         if len(dates) > 10:
             plt.xticks([dates[0], dates[-1]] + [dates[i] for i in range(1, len(dates)-1, len(dates)//5)], 
                       rotation=45, fontsize=7)
@@ -242,13 +262,15 @@ class NPSCalculator:
         table_data = []
         
         if show_all_years:
+            # Show all years when show_all_years is True
             for date, value in self.yearly_data:
                 years_contributed = date.year - self.current_date.year
                 current_monthly_contribution = self.monthly_contribution * (1 + self.annual_increase_rate) ** years_contributed
                 
-                if value >= 1e7:
+                # Format large numbers
+                if value >= 1e7:  # Above 1 crore
                     formatted_value = f"₹{value/1e7:.2f} Cr"
-                elif value >= 1e5:
+                elif value >= 1e5:  # Above 1 lakh
                     formatted_value = f"₹{value/1e5:.2f} L"
                 else:
                     formatted_value = f"₹{value:.2f}"
@@ -260,6 +282,7 @@ class NPSCalculator:
                     "Monthly Contribution": f"₹{current_monthly_contribution:.2f}"
                 })
         else:
+            # Show only approximately 10 data points when show_all_years is False
             step = max(1, len(self.yearly_data) // 10)
             
             for i in range(0, len(self.yearly_data), step):
@@ -267,9 +290,10 @@ class NPSCalculator:
                 years_contributed = date.year - self.current_date.year
                 current_monthly_contribution = self.monthly_contribution * (1 + self.annual_increase_rate) ** years_contributed
                 
-                if value >= 1e7:
+                # Format large numbers
+                if value >= 1e7:  # Above 1 crore
                     formatted_value = f"₹{value/1e7:.2f} Cr"
-                elif value >= 1e5:
+                elif value >= 1e5:  # Above 1 lakh
                     formatted_value = f"₹{value/1e5:.2f} L"
                 else:
                     formatted_value = f"₹{value:.2f}"
@@ -281,6 +305,7 @@ class NPSCalculator:
                     "Monthly Contribution": f"₹{current_monthly_contribution:.2f}"
                 })
                 
+            # Always include the final year if it's not already included
             if len(self.yearly_data) > 0 and (len(self.yearly_data)-1) % step != 0:
                 date, value = self.yearly_data[-1]
                 years_contributed = date.year - self.current_date.year
@@ -303,16 +328,16 @@ class NPSCalculator:
         return table_data    
     
     def export_to_pdf(self):
-        
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=14)
         pdf.cell(200, 10, txt="NPS Pension Projection Summary", ln=True, align='C')
 
+        # Format large numbers for better display - using Rs. instead of ₹ symbol
         def format_amount(val):
-            if val >= 1e7:
+            if val >= 1e7:  # Above 1 crore
                 return f"Rs.{val/1e7:.2f} Crore ({val:.2f})"
-            elif val >= 1e5:
+            elif val >= 1e5:  # Above 1 lakh
                 return f"Rs.{val/1e5:.2f} Lakh ({val:.2f})"
             else:
                 return f"Rs.{val:.2f}"
@@ -325,54 +350,63 @@ class NPSCalculator:
             "Total Retirement Corpus": f"{format_amount(self.total_corpus)} ({self.total_corpus_words})",
             "Annuity Corpus": f"{format_amount(self.annuity_corpus)} ({self.annuity_corpus_words})",
             "Lump Sum": f"{format_amount(self.lump_sum)} ({self.lump_sum_words})",
-            "Estimated Monthly Pension (6% Annuity Rate)": f"{format_amount(self.monthly_pension)} ({self.monthly_pension_words})",
-            "Inflation-Adjusted Pension (Today's Value)": f"{format_amount(self.real_monthly_pension)} ({self.real_monthly_pension_words})",
+            "Estimated Monthly Pension(Considering Annuity rate of 6%)": f"{format_amount(self.monthly_pension)} ({self.monthly_pension_words})",
             "Total Invested": f"{format_amount(self.total_invested)} ({self.total_invested_words})",
             "Growth": f"{format_amount(self.growth)} ({self.growth_words})"
         }
 
-        pdf.set_font("Arial", size=10)
+        pdf.set_font("Arial", size=10)  # Smaller font size for detailed info
         for key, value in items.items():
             pdf.multi_cell(0, 10, txt=f"{key}: {value}", align='L')
-
-        # Use temporary files for charts
-        for fig in [self.generate_bar_chart(), self.generate_pie_chart()]:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-                fig.savefig(tmpfile.name, format='png', dpi=150)
-                pdf.image(tmpfile.name, x=10, w=190)
-                pdf.ln(10)
-
-        pdf.ln(10)
-        pdf.set_font("Arial", 'I', size=8)
+        
+        # Add developer credit at the bottom of the PDF
+        pdf.ln(10)  # Add some space
+        pdf.set_font("Arial", 'I', size=8)  # Italic style for credits
         pdf.cell(0, 10, txt="Developed by Saptarshi Sanyal, Asansol, WB, India", ln=True, align='C')
 
+        # Use 'bytes' mode to avoid encoding issues
         try:
             pdf_output = pdf.output(dest='S').encode('latin-1')
         except UnicodeEncodeError:
+            # Fallback if any Unicode characters cause issues
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", size=14)
             pdf.cell(200, 10, txt="NPS Pension Projection Summary", ln=True, align='C')
-
+            
             pdf.set_font("Arial", size=10)
             for key, value in items.items():
+                # Remove any potential Unicode characters
                 safe_value = value.replace('₹', 'Rs.')
                 pdf.multi_cell(0, 10, txt=f"{key}: {safe_value}", align='L')
-
-            pdf.ln(10)
-            pdf.set_font("Arial", 'I', size=8)
+            
+            # Add developer credit at the bottom of the PDF (in fallback mode)
+            pdf.ln(10)  # Add some space
+            pdf.set_font("Arial", 'I', size=8)  # Italic style for credits
             pdf.cell(0, 10, txt="Developed by Saptarshi Sanyal, Asansol, WB, India", ln=True, align='C')
-
+            
             pdf_output = pdf.output(dest='S').encode('latin-1')
-
+            
         return io.BytesIO(pdf_output)
 
+# Apply CSS for faster loading and better appearance
+# ... (keep all the existing imports and class definitions the same until the apply_custom_css function)
 
+# Updated CSS with more prominent colors and better styling
+# ... (keep all the existing imports and class definitions the same until the apply_custom_css function)
+
+# Updated CSS with white bold headings and values
 def apply_custom_css():
     st.markdown("""
     <style>
+    /* Faster loading by reducing animations */
+    .stButton button {
+        transition: none !important;
+    }
+    
+    /* Better appearance for metrics with white bold headings */
     div[data-testid="stMetric"] {
-        background-color: rgba(28, 43, 65, 0.8);
+        background-color: rgba(28, 43, 65, 0.8);  /* Darker background for contrast */
         border-radius: 5px;
         padding: 10px 15px;
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
@@ -385,9 +419,9 @@ def apply_custom_css():
     }
     
     div[data-testid="stMetric"] > div:first-child > p {
-        font-weight: 700 !important;
+        font-weight: 700 !important;  /* Bolder font */
         font-size: 1.1rem !important;
-        color: white !important;
+        color: white !important;  /* White color for headings */
     }
     
     div[data-testid="stMetric"] label {
@@ -395,12 +429,35 @@ def apply_custom_css():
         font-weight: 600 !important;
     }
     
+    /* Make metric values white and bold */
     div[data-testid="stMetric"] > div[data-testid="stMetricValue"] > div {
         color: white !important;
         font-weight: 700 !important;
         font-size: 1.3rem !important;
     }
     
+    /* Make form inputs more compact and organized */
+    div[data-testid="stNumberInput"] {
+        margin-bottom: 0.8rem;
+    }
+    
+    /* Make slider labels more prominent */
+    .stSlider label {
+        font-weight: 500;
+    }
+    
+    /* Optimize loading by disabling parallax effect */
+    .main {
+        background-image: none !important;
+    }
+    
+    /* Better table appearance */
+    div[data-testid="stTable"] {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    /* Word descriptions styling - white bold */
     .word-value {
         font-size: 0.95rem !important;
         color: white !important;
@@ -409,6 +466,7 @@ def apply_custom_css():
         font-style: normal !important;
     }
     
+    /* Section headers */
     .section-header {
         color: #0068c9;
         font-weight: 700;
@@ -416,15 +474,18 @@ def apply_custom_css():
         margin-bottom: 0.5rem;
     }
     
+    /* Make the main title more prominent */
     h1 {
         color: white !important;
         text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
     }
     
+    /* Darker background for better contrast */
     .stApp {
         background-color: #0e1117;
     }
     
+    /* Better tab styling */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #0e1117;
     }
@@ -432,29 +493,15 @@ def apply_custom_css():
     .stTabs [data-baseweb="tab"] {
         color: white !important;
     }
-    
-    .formula-box {
-        background-color: #1e2130;
-        border-radius: 5px;
-        padding: 15px;
-        margin: 10px 0;
-        border-left: 4px solid #0068c9;
-    }
-    
-    .formula-example {
-        background-color: #2a2e3e;
-        border-radius: 3px;
-        padding: 10px;
-        margin: 8px 0;
-        font-family: monospace;
-    }
     </style>
     """, unsafe_allow_html=True)
 
+# -------- Streamlit Interface --------
 def main():
     st.set_page_config(layout="wide", page_title="NPS Calculator", page_icon="📈")
     apply_custom_css()
     
+    # Use container for better performance
     with st.container():
         st.markdown(
             """
@@ -463,11 +510,14 @@ def main():
             unsafe_allow_html=True
         )
 
+    # Use a single column form instead of tabs for better performance
     with st.form("nps_form"):
+        # Personal Information Section
         st.markdown("<div class='section-header'>Personal Information</div>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         
         with col1:
+            # Simpler date input for better performance
             st.write("Enter Date of Birth")
             date_cols = st.columns(3)
             with date_cols[0]:
@@ -480,48 +530,47 @@ def main():
             try:
                 birth_date = datetime.date(year, month, day)
             except ValueError:
+                # Handle invalid date more efficiently
                 day = min(day, 28 if month == 2 else 30 if month in [4, 6, 9, 11] else 31)
                 birth_date = datetime.date(year, month, day)
             
         with col2:
             retirement_age = st.number_input("Retirement Age", min_value=40, max_value=80, value=60)
         
+        # Investment Details Section - each input on separate line
         st.markdown("<div class='section-header'>Investment Details</div>", unsafe_allow_html=True)
         current_balance = st.number_input("Current NPS Balance (₹)", min_value=0.0, value=0.0)
         monthly_contribution = st.number_input("Monthly Contribution (₹)", min_value=0.0, value=0.0)
         annual_increase = st.slider("Annual Increase in Contribution (%)", 0, 20, 5)
         
+        # Pension Details Section
         st.markdown("<div class='section-header'>Pension Details</div>", unsafe_allow_html=True)
-        annuity_ratio = st.slider("Annuity Ratio (%)", 0, 100, 40, 
+        annuity_ratio = st.slider("Annuity Ratio (%) - You have to sacrifice this amount from you accumulated corpus to get pension benefit", 0, 100, 40, 
                                 help="Percentage of corpus to be used for purchasing annuity to get monthly pension")
         
+        # Return Rate Section
         st.markdown("<div class='section-header'>Expected Returns</div>", unsafe_allow_html=True)
         annual_return_rate = st.slider("Expected Annual Return (%)", 1, 20, 10)
-        inflation_rate = st.slider("Expected Inflation Rate (%)", 0.0, 10.0, 5.0)
 
         submitted = st.form_submit_button("Calculate", type="primary")
 
     if submitted:
         try:
-            current_date = datetime.date.today()
-            age = relativedelta(current_date, birth_date).years
-            
-            if retirement_age <= age:
-                st.error("Retirement age must be greater than current age")
-                st.stop()
-                
+            # Progress indicator for better UX during computation
             with st.spinner("Calculating your pension details..."):
                 nps = NPSCalculator(
                     birth_date=birth_date,
                     current_balance=current_balance,
                     monthly_contribution=monthly_contribution,
-                    annuity_ratio=annuity_ratio / 100,
-                    annual_return_rate=annual_return_rate / 100,
-                    annual_increase_rate=annual_increase / 100,
-                    retirement_age=retirement_age,
-                    inflation_rate=inflation_rate / 100
+                    annuity_ratio=annuity_ratio / 100,  # Convert to decimal
+                    annual_return_rate=annual_return_rate / 100,  # Convert to decimal
+                    annual_increase_rate=annual_increase / 100,  # Convert to decimal
+                    retirement_age=retirement_age
                 )
 
+            current_date = datetime.date.today()
+            age = relativedelta(current_date, birth_date).years
+            
             st.markdown(f"""
             <div style='color: white;'>
             <p><strong>Basic Information:</strong></p>
@@ -534,37 +583,37 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-            tab1, tab2, tab3 = st.tabs(["Summary Results", "Detailed Yearwise Projections", "Formulas Used"])
+            # Create tabs for organizing results
+            tab1, tab2, tab3 = st.tabs(["Summary Results", "Detailed Yearwise Projections", "Formulas used"])
             
             with tab1:
                 st.subheader("📊 Results")
                 
+                # Format function for metrics
                 def format_metric_value(value):
-                    if value >= 10000000:
+                    if value >= 10000000:  # 1 crore
                         return f"₹{value/10000000:.2f} Cr"
-                    elif value >= 100000:
+                    elif value >= 100000:  # 1 lakh
                         return f"₹{value/100000:.2f} L"
                     else:
                         return f"₹{value:.2f}"
                 
+                # Create columns for metrics with word values
                 results_col1, results_col2 = st.columns(2)
                 
                 with results_col1:
                     st.metric("Total Corpus at Retirement", format_metric_value(nps.total_corpus))
                     st.markdown(f"<div class='word-value'>{nps.total_corpus_words}</div>", unsafe_allow_html=True)
                     
-                    st.metric("Annuity Corpus", format_metric_value(nps.annuity_corpus))
+                    st.metric("Annuity Corpus(This amount will debited from accumulated corpus to get pension benefit)", format_metric_value(nps.annuity_corpus))
                     st.markdown(f"<div class='word-value'>{nps.annuity_corpus_words}</div>", unsafe_allow_html=True)
                     
                     st.metric("Lump Sum Withdrawal", format_metric_value(nps.lump_sum))
                     st.markdown(f"<div class='word-value'>{nps.lump_sum_words}</div>", unsafe_allow_html=True)
                 
                 with results_col2:
-                    st.metric("Estimated Monthly Pension (6%)", format_metric_value(nps.monthly_pension))
+                    st.metric("Estimated Monthly Pension (Considering annuity rate 6%)", format_metric_value(nps.monthly_pension))
                     st.markdown(f"<div class='word-value'>{nps.monthly_pension_words}</div>", unsafe_allow_html=True)
-                    
-                    st.metric("Inflation-Adjusted Pension", format_metric_value(nps.real_monthly_pension))
-                    st.markdown(f"<div class='word-value'>{nps.real_monthly_pension_words}</div>", unsafe_allow_html=True)
                     
                     st.metric("Total Invested", format_metric_value(nps.total_invested))
                     st.markdown(f"<div class='word-value'>{nps.total_invested_words}</div>", unsafe_allow_html=True)
@@ -572,8 +621,10 @@ def main():
                     st.metric("Growth", format_metric_value(nps.growth))
                     st.markdown(f"<div class='word-value'>{nps.growth_words}</div>", unsafe_allow_html=True)
 
+                # Bar chart with optimized layout
                 st.pyplot(nps.generate_bar_chart(), use_container_width=True)
                 
+                # Pie chart and line chart side by side with adjusted widths
                 chart_col1, chart_col2 = st.columns([1, 1.5])
                 
                 with chart_col1:
@@ -590,83 +641,29 @@ def main():
             
             with tab3:
                 st.subheader("📚 Formulas Used")
+                st.markdown(r"""
+                **Monthly Compounding with Increasing Contributions:**  
+                $$FV = \sum_{t=1}^{T} P_t \times (1 + r)^{T-t+1}$$  
+                where $P_t = P_0 \times (1 + g)^{\lfloor(t-1)/12\rfloor}$
 
-                # Extract actual values from the user's input and calculated results
-                years_to_retirement = nps.retirement_age - nps.current_age
-                months_to_retirement = nps.months
-                annual_return_rate = nps.annual_return_rate
-                monthly_return_rate = annual_return_rate / 12
-                annual_increase_rate = nps.annual_increase_rate
-                inflation_rate = nps.inflation_rate
+                **Future Value of Current Corpus:**  
+                $$FV = B \times (1 + R)^T$$
 
-                initial_balance = nps.current_balance
-                initial_contribution = nps.monthly_contribution
-                total_invested = nps.total_invested
-                total_corpus = nps.total_corpus
-                nominal_pension = nps.monthly_pension
-                inflation_adjusted_pension = nps.real_monthly_pension
-                annuity_corpus = nps.annuity_corpus
-                annuity_rate = nps.annuity_rate
+                **Monthly Pension from Annuity Corpus:**  
+                $$P = \frac{A \times a}{12}$$
 
-                # Format helper
-                def fmt(val):
-                    return f"₹{val:,.2f}"
+                **Where:**  
+                - $P_0$: Initial Monthly Contribution  
+                - $g$: Annual increase in contribution  
+                - $r$: Monthly return rate ($R/12$)  
+                - $T$: Months to retirement  
+                - $B$: Current NPS Balance  
+                - $R$: Annual return rate  
+                - $A$: Annuity Corpus  
+                - $a$: Annuity Rate
+                """)
 
-                # 1. Future Value of Current Corpus
-                future_value_current = initial_balance * ((1 + annual_return_rate) ** years_to_retirement)
-
-                st.markdown(f"""
-                <div class="formula-box">
-                <h4>1. Future Value of Current Balance</h4>
-                <p><strong>Formula:</strong> FV = B × (1 + R)<sup>T</sup></p>
-                <div class="formula-example">
-                <p><strong>Your Case:</strong></p>
-                <p>Initial Balance (B) = {fmt(initial_balance)}, Annual Return (R) = {annual_return_rate:.2%}, Years to Retirement (T) = {years_to_retirement}</p>
-                <p>FV = {fmt(initial_balance)} × (1 + {annual_return_rate:.2f})<sup>{years_to_retirement}</sup> = {fmt(future_value_current)}</p>
-                </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # 2. Future Value of Monthly Contributions (simplified)
-                st.markdown(f"""
-                <div class="formula-box">
-                <h4>2. Future Value of Monthly Contributions</h4>
-                <p><strong>Formula:</strong> FV = Σ [P<sub>t</sub> × (1 + r)<sup>(N - t)</sup>], where P<sub>t</sub> grows yearly by g%</p>
-                <div class="formula-example">
-                <p><strong>Your Case:</strong></p>
-                <p>Initial Monthly Contribution (P₀) = {fmt(initial_contribution)}, Annual Increase = {annual_increase_rate:.2%}, Monthly Return = {monthly_return_rate:.4f}</p>
-                <p>This is calculated iteratively over {months_to_retirement} months with increasing P<sub>t</sub> each year.</p>
-                <p>Total Invested (including initial balance) = {fmt(total_invested)}</p>
-                </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # 3. Monthly Pension Calculation
-                st.markdown(f"""
-                <div class="formula-box">
-                <h4>3. Monthly Pension</h4>
-                <p><strong>Formula:</strong> P = (A × a) / 12</p>
-                <div class="formula-example">
-                <p><strong>Your Case:</strong></p>
-                <p>Annuity Corpus (A) = {fmt(annuity_corpus)}, Annuity Rate (a) = {annuity_rate:.2%}</p>
-                <p>P = ({fmt(annuity_corpus)} × {annuity_rate:.2f}) / 12 = {fmt(nominal_pension)} per month</p>
-                </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                # 4. Inflation Adjusted Pension
-                st.markdown(f"""
-                <div class="formula-box">
-                <h4>4. Inflation-Adjusted Pension (in Today's Value)</h4>
-                <p><strong>Formula:</strong> Real Pension = P / (1 + i)<sup>Y</sup></p>
-                <div class="formula-example">
-                <p><strong>Your Case:</strong></p>
-                <p>Nominal Pension (P) = {fmt(nominal_pension)}, Inflation (i) = {inflation_rate:.2%}, Years (Y) = {years_to_retirement}</p>
-                <p>Real Pension = {fmt(nominal_pension)} / (1 + {inflation_rate:.2f})<sup>{years_to_retirement}</sup> = {fmt(inflation_adjusted_pension)} per month</p>
-                </div>
-                </div>
-                """, unsafe_allow_html=True)
-
+            # Export PDF button
             pdf_file = nps.export_to_pdf()
             st.download_button(
                 label="📄 Download Summary as PDF",
