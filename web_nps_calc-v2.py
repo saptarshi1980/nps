@@ -323,7 +323,7 @@ class NPSCalculator:
             "Retirement Age": f"{self.retirement_age} years",
             "Retirement Date": self.retirement_date.strftime("%d-%m-%Y"),
             "Total Retirement Corpus": f"{format_amount(self.total_corpus)} ({self.total_corpus_words})",
-            "Annuity Corpus": f"{format_amount(self.annuity_corpus)} ({self.annuity_corpus_words})",
+            "Annuity Corpus (This amount will be debited from total corpus for getting pension)": f"{format_amount(self.annuity_corpus)} ({self.annuity_corpus_words})",
             "Lump Sum": f"{format_amount(self.lump_sum)} ({self.lump_sum_words})",
             "Estimated Monthly Pension (6% Annuity Rate)": f"{format_amount(self.monthly_pension)} ({self.monthly_pension_words})",
             "Inflation-Adjusted Pension (Today's Value)": f"{format_amount(self.real_monthly_pension)} ({self.real_monthly_pension_words})",
@@ -492,7 +492,7 @@ def main():
         annual_increase = st.slider("Annual Increase in Contribution (%)", 0, 20, 5)
         
         st.markdown("<div class='section-header'>Pension Details</div>", unsafe_allow_html=True)
-        annuity_ratio = st.slider("Annuity Ratio (%)", 0, 100, 40, 
+        annuity_ratio = st.slider("Annuity Ratio (%)- Portion of accumalation you have to sacrifice for getting pension", 0, 100, 40, 
                                 help="Percentage of corpus to be used for purchasing annuity to get monthly pension")
         
         st.markdown("<div class='section-header'>Expected Returns</div>", unsafe_allow_html=True)
@@ -553,7 +553,7 @@ def main():
                     st.metric("Total Corpus at Retirement", format_metric_value(nps.total_corpus))
                     st.markdown(f"<div class='word-value'>{nps.total_corpus_words}</div>", unsafe_allow_html=True)
                     
-                    st.metric("Annuity Corpus", format_metric_value(nps.annuity_corpus))
+                    st.metric("Annuity Corpus(Fund to be debited from your Total Corpus for getting pension)", format_metric_value(nps.annuity_corpus))
                     st.markdown(f"<div class='word-value'>{nps.annuity_corpus_words}</div>", unsafe_allow_html=True)
                     
                     st.metric("Lump Sum Withdrawal", format_metric_value(nps.lump_sum))
