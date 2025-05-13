@@ -193,7 +193,7 @@ class NPSCalculator:
         plt.title("Corpus Distribution", fontsize=10)
         ax.legend(labels, loc="center left", bbox_to_anchor=(0.9, 0.5), fontsize=7)
         
-        ax.annotate(f"Monthly Pension ({self.annuity_rate*100:.1f}% Annuity Rate): {format_amount(self.monthly_pension)}", 
+        ax.annotate(f"Monthly Pension (6% Annuity Rate): {format_amount(self.monthly_pension)}", 
                    xy=(0.5, -0.1), xycoords='axes fraction',
                    ha='center', va='center', fontsize=7)
         
@@ -325,7 +325,7 @@ class NPSCalculator:
             "Total Retirement Corpus": f"{format_amount(self.total_corpus)} ({self.total_corpus_words})",
             "Annuity Corpus (This amount will be debited from total corpus for getting pension)": f"{format_amount(self.annuity_corpus)} ({self.annuity_corpus_words})",
             "Lump Sum": f"{format_amount(self.lump_sum)} ({self.lump_sum_words})",
-            f"Estimated Monthly Pension ({self.annuity_rate*100:.1f}% Annuity Rate)": f"{format_amount(self.monthly_pension)} ({self.monthly_pension_words})",
+            "Estimated Monthly Pension (6% Annuity Rate)": f"{format_amount(self.monthly_pension)} ({self.monthly_pension_words})",
             "Inflation-Adjusted Pension (Today's Value)": f"{format_amount(self.real_monthly_pension)} ({self.real_monthly_pension_words})",
             "Total Invested": f"{format_amount(self.total_invested)} ({self.total_invested_words})",
             "Growth": f"{format_amount(self.growth)} ({self.growth_words})"
@@ -495,9 +495,6 @@ def main():
         annuity_ratio = st.slider("Annuity Ratio (%)- Portion of accumalation you have to sacrifice for getting pension", 0, 100, 40, 
                                 help="Percentage of corpus to be used for purchasing annuity to get monthly pension")
         
-        annuity_rate = st.slider("Annuity Rate (%)- Annual interest rate for monthly pension", 1.0, 10.0, 6.0, 0.1,
-                               help="Annual interest rate used to calculate monthly pension from annuity corpus")
-        
         st.markdown("<div class='section-header'>Expected Returns</div>", unsafe_allow_html=True)
         annual_return_rate = st.slider("Expected Annual Return (%)", 1, 20, 10)
         inflation_rate = st.slider("Expected Inflation Rate (%)", 0.0, 10.0, 5.0)
@@ -522,7 +519,6 @@ def main():
                     annual_return_rate=annual_return_rate / 100,
                     annual_increase_rate=annual_increase / 100,
                     retirement_age=retirement_age,
-                    annuity_rate=annuity_rate / 100,
                     inflation_rate=inflation_rate / 100
                 )
 
